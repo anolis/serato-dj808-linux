@@ -111,7 +111,7 @@ Or use the **Serato DJ Pro** shortcut in your application menu.
 
 - Debian 13 (bookworm) / Wine 11.0 (WineHQ stable)
 - Roland DJ-808 (VID `0x0582`, PID `0x01C9`)
-- Serato DJ Pro 4.0.7
+- Serato DJ Pro 2.5.12
 
 ## Contributing
 
@@ -121,7 +121,7 @@ open a PR with the patch offsets and test results. The binary patch table in
 
 ## How the binary patches work
 
-The aggregation function at VA `0x141a3b890` in 4.0.7 has three search paths,
+The aggregation function at VA `0x141a3b890` in 2.5.12 has three search paths,
 each guarded by a vtable call on the USB device object. The guards check
 whether a MIDI connection is already established in the corresponding direction
 before running the search. On first connection these all return 0, so no search
