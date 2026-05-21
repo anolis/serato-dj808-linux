@@ -86,8 +86,8 @@ Or use the **Serato DJ Pro** shortcut in your application menu.
 
 | Version | Status |
 |---|---|
-| 4.0.7 | Fully patched — binary patches + all hooks |
-| Others | Hooks and libusb stub applied; binary patches skipped |
+| 2.5.12 | Fully patched — binary patches + all hooks |
+| Others | Hooks and libusb stub applied; binary patches skipped @todo |
 
 > **Note on 4.0.x subscriptions:** Serato DJ Pro 4.0 requires an active
 > subscription even if your controller shipped with a perpetual license.
