@@ -37,7 +37,14 @@
 #    Without this, Serato writes crates to an empty home library and they
 #    vanish on next launch.
 #
-# 7. Writes a launch wrapper (~/.local/bin/serato-dj-pro) and updates (or
+# 7. Rewrites legacy track paths in the Serato library database and all crate
+#    files when --music-dir is given.  Serato DJ Pro 4.x stores paths as
+#    Wine Z:-relative absolutes (e.g. "media/user/Drive/Music/track.mp3"),
+#    but libraries created by Serato DJ Pro 2.x store paths relative to the
+#    My Music root (e.g. "Music/track.mp3").  Without this rewrite every
+#    track in an imported library shows as missing.
+#
+# 8. Writes a launch wrapper (~/.local/bin/serato-dj-pro) and updates (or
 #    creates) the .desktop shortcut so the app launches correctly from any
 #    desktop environment.
 #
@@ -164,7 +171,7 @@ run mkdir -p "$HOME/.local/share/applications"
 # ---------------------------------------------------------------------------
 # Step 1 — Build libusb-1.0.dll stub
 # ---------------------------------------------------------------------------
-info "Step 1/7 — Building libusb-1.0.dll stub..."
+info "Step 1/8 — Building libusb-1.0.dll stub..."
 
 cat > /tmp/_libusb_stub.c << 'CSRC'
 /*
@@ -368,7 +375,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 2 — Build LD_PRELOAD hook
 # ---------------------------------------------------------------------------
-info "Step 2/7 — Building LD_PRELOAD hook..."
+info "Step 2/8 — Building LD_PRELOAD hook..."
 
 # Resolve actual Wine DLL directory
 WINE_DLL_DIR=""
@@ -466,7 +473,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 3 — Build + deploy RDAS1174.DLL ASIO stub
 # ---------------------------------------------------------------------------
-info "Step 3/7 — Building RDAS1174.DLL ASIO stub..."
+info "Step 3/8 — Building RDAS1174.DLL ASIO stub..."
 
 RDAS_SRC="$SCRIPT_DIR/rdas_stub.c"
 RDAS_DEF="$SCRIPT_DIR/rdas_stub.def"
@@ -493,7 +500,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 4 — Deploy libusb stub into Serato install dir
 # ---------------------------------------------------------------------------
-info "Step 4/7 — Deploying libusb stub..."
+info "Step 4/8 — Deploying libusb stub..."
 
 LIBUSB_TARGET="$SERATO_DIR/libusb-1.0.dll"
 if [[ $DRY_RUN -eq 0 ]]; then
@@ -510,7 +517,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 5 — Apply version-specific binary patches to Serato DJ Pro.exe
 # ---------------------------------------------------------------------------
-info "Step 5/7 — Applying binary patches for Serato $SERATO_VERSION..."
+info "Step 5/8 — Applying binary patches for Serato $SERATO_VERSION..."
 
 apply_patches() {
     python3 - "$SERATO_EXE" "$SERATO_VERSION" << 'PYEOF'
@@ -585,7 +592,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 6 — Set Wine "My Music" library root for crate persistence
 # ---------------------------------------------------------------------------
-info "Step 6/7 — Setting Wine library root (My Music) for crate persistence..."
+info "Step 6/8 — Setting Wine library root (My Music) for crate persistence..."
 
 if [[ -n "$MUSIC_DIR" ]]; then
     [[ -d "$MUSIC_DIR" ]] || die "--music-dir does not exist: $MUSIC_DIR"
@@ -609,9 +616,157 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 7 — OAuth URI scheme + launch wrapper + desktop entry
+# Step 7 — Rewrite legacy Serato 2.x track paths → Serato 4.x Z:-absolute
 # ---------------------------------------------------------------------------
-info "Step 7/7 — Setting up OAuth handler, launch wrapper, desktop entry..."
+info "Step 7/8 — Rewriting legacy track paths in library and crates..."
+
+if [[ -n "$MUSIC_DIR" ]]; then
+    SERATO_LIB="$MUSIC_DIR/_Serato_"
+    if [[ -d "$SERATO_LIB" ]]; then
+        if [[ $DRY_RUN -eq 0 ]]; then
+            python3 - "$MUSIC_DIR" "$SERATO_LIB" << 'PYEOF'
+import struct, os, sys, shutil, glob
+
+music_dir = sys.argv[1]   # e.g. /media/anolis/Babylon
+serato_lib = sys.argv[2]  # e.g. /media/anolis/Babylon/_Serato_
+
+# The Z:-relative prefix we need to prepend to old relative paths.
+# Z: = Linux root /, so strip the leading slash.
+z_prefix = music_dir.lstrip('/')  # e.g. "media/anolis/Babylon"
+
+def needs_fix(path_str):
+    """True if path is old-format (relative to music root, not Z:-absolute)."""
+    # New-format paths start with a real Linux root component, e.g. "media/", "home/"
+    # Old-format paths start with a user folder, e.g. "Music/", "Downloads/"
+    linux_abs = '/' + path_str.replace('\\', '/')
+    return not os.path.exists(linux_abs)
+
+def fixed_path(path_str):
+    """Return the corrected Z:-absolute path, or None if unresolvable."""
+    candidate = z_prefix + '/' + path_str.replace('\\', '/')
+    if os.path.exists('/' + candidate):
+        return candidate
+    return None
+
+def rebuild_with_new_paths(data, tag_to_fix):
+    """
+    Parse top-level tag/length records.  For each record whose tag matches
+    tag_to_fix (b'otrk'), scan inner records for path tags (b'pfil' or b'ptrk')
+    and rewrite if needed.  Returns (new_data_bytes, n_fixed, n_skipped).
+    """
+    path_tag = b'pfil' if tag_to_fix == b'otrk' and b'pfil' else b'ptrk'
+    # Detect from first otrk which inner path tag is used
+    # We'll handle both to be safe
+
+    out = bytearray()
+    pos = 0
+    n_fixed = 0
+    n_skipped = 0
+
+    while pos < len(data) - 8:
+        tag  = bytes(data[pos:pos+4])
+        dlen = struct.unpack('>I', data[pos+4:pos+8])[0]
+        if pos + 8 + dlen > len(data):
+            out += data[pos:]
+            break
+        payload = bytes(data[pos+8:pos+8+dlen])
+
+        if tag == tag_to_fix:
+            # Rebuild inner record, patching pfil or ptrk
+            inner_out = bytearray()
+            ipos = 0
+            while ipos < len(payload) - 8:
+                itag  = bytes(payload[ipos:ipos+4])
+                ilen  = struct.unpack('>I', payload[ipos+4:ipos+8])[0]
+                if ipos + 8 + ilen > len(payload):
+                    inner_out += payload[ipos:]
+                    break
+                ipay  = bytes(payload[ipos+8:ipos+8+ilen])
+
+                if itag in (b'pfil', b'ptrk'):
+                    try:
+                        path_str = ipay.decode('utf-16-be')
+                        if needs_fix(path_str):
+                            new_path = fixed_path(path_str)
+                            if new_path:
+                                new_bytes = new_path.encode('utf-16-be')
+                                inner_out += itag
+                                inner_out += struct.pack('>I', len(new_bytes))
+                                inner_out += new_bytes
+                                n_fixed += 1
+                                ipos += 8 + ilen
+                                continue
+                            else:
+                                n_skipped += 1
+                    except Exception:
+                        pass
+
+                inner_out += payload[ipos:ipos+8+ilen]
+                ipos += 8 + ilen
+
+            out += tag
+            out += struct.pack('>I', len(inner_out))
+            out += inner_out
+        else:
+            out += data[pos:pos+8+dlen]
+
+        pos += 8 + dlen
+
+    return bytes(out), n_fixed, n_skipped
+
+total_fixed = 0
+total_skipped = 0
+
+# Fix database V2
+db_path = os.path.join(serato_lib, 'database V2')
+if os.path.exists(db_path):
+    with open(db_path, 'rb') as f:
+        db_data = bytearray(f.read())
+    new_db, nf, ns = rebuild_with_new_paths(db_data, b'otrk')
+    if nf > 0:
+        shutil.copy2(db_path, db_path + '.bak_pathfix')
+        with open(db_path, 'wb') as f:
+            f.write(new_db)
+        print(f'[OK]    database V2: {nf} paths fixed, {ns} unresolvable')
+    else:
+        print(f'[OK]    database V2: already up-to-date ({ns} unresolvable)')
+    total_fixed += nf; total_skipped += ns
+
+# Fix all crate files
+crate_files = (
+    glob.glob(os.path.join(serato_lib, 'Subcrates', '*.crate')) +
+    glob.glob(os.path.join(serato_lib, 'Crates', '*.crate'))
+)
+crate_fixed = 0
+for crate_path in crate_files:
+    with open(crate_path, 'rb') as f:
+        crate_data = bytearray(f.read())
+    new_crate, nf, ns = rebuild_with_new_paths(crate_data, b'otrk')
+    if nf > 0:
+        shutil.copy2(crate_path, crate_path + '.bak_pathfix')
+        with open(crate_path, 'wb') as f:
+            f.write(new_crate)
+        crate_fixed += 1
+    total_fixed += nf; total_skipped += ns
+
+print(f'[OK]    {crate_fixed}/{len(crate_files)} crate files updated')
+print(f'[INFO]  Total: {total_fixed} paths fixed, {total_skipped} unresolvable')
+PYEOF
+        else
+            info "[DRY] would rewrite legacy track paths in $SERATO_LIB"
+        fi
+    else
+        info "No _Serato_ library found at $SERATO_LIB — skipping path fix"
+    fi
+else
+    warn "--music-dir not set; skipping legacy path rewrite."
+    warn "If tracks show as missing in Serato, re-run with --music-dir."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 8 — OAuth URI scheme + launch wrapper + desktop entry
+# ---------------------------------------------------------------------------
+info "Step 8/8 — Setting up OAuth handler, launch wrapper, desktop entry..."
 
 # Register seratodjpro:// in Wine registry
 if [[ $DRY_RUN -eq 0 ]]; then
