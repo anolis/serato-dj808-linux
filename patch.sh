@@ -508,7 +508,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4 — Apply version-specific binary patches to Serato DJ Pro.exe
+# Step 5 — Apply version-specific binary patches to Serato DJ Pro.exe
 # ---------------------------------------------------------------------------
 info "Step 5/7 — Applying binary patches for Serato $SERATO_VERSION..."
 
@@ -583,7 +583,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5 — OAuth URI scheme + launch wrapper + desktop entry
+# Step 6 — Set Wine "My Music" library root for crate persistence
 # ---------------------------------------------------------------------------
 info "Step 6/7 — Setting Wine library root (My Music) for crate persistence..."
 
