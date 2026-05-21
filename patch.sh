@@ -235,6 +235,55 @@ static BOOL parse_instance_id(const char *id,
     return FALSE;
 }
 
+/*
+ * Check if a USB device with the given VID/PID is physically connected by
+ * scanning Z:\sys\bus\usb\devices\ (= /sys/bus/usb/devices/ on Linux).
+ * Returns TRUE if found or if sysfs is inaccessible (fail-open).
+ */
+static BOOL is_physically_present(uint16_t vid, uint16_t pid)
+{
+    char vid_str[8], pid_str[8];
+    /* sysfs idVendor/idProduct are lowercase hex with a trailing newline */
+    snprintf(vid_str, sizeof(vid_str), "%04x", vid);
+    snprintf(pid_str, sizeof(pid_str), "%04x", pid);
+
+    WIN32_FIND_DATAA ffd;
+    HANDLE h = FindFirstFileA("Z:\\sys\\bus\\usb\\devices\\*", &ffd);
+    if (h == INVALID_HANDLE_VALUE) return TRUE; /* sysfs not accessible, assume present */
+
+    BOOL found = FALSE;
+    do {
+        if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (ffd.cFileName[0] == '.') continue;
+
+        char path[512]; char buf[16]; DWORD nr; HANDLE fh;
+
+        snprintf(path, sizeof(path),
+                 "Z:\\sys\\bus\\usb\\devices\\%s\\idVendor", ffd.cFileName);
+        fh = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (fh == INVALID_HANDLE_VALUE) continue;
+        nr = 0; ReadFile(fh, buf, sizeof(buf)-1, &nr, NULL); CloseHandle(fh);
+        buf[nr] = '\0';
+        for (DWORD i = 0; i < nr; i++) if (buf[i]=='\n'||buf[i]=='\r') buf[i]='\0';
+        if (_stricmp(buf, vid_str) != 0) continue;
+
+        snprintf(path, sizeof(path),
+                 "Z:\\sys\\bus\\usb\\devices\\%s\\idProduct", ffd.cFileName);
+        fh = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (fh == INVALID_HANDLE_VALUE) continue;
+        nr = 0; ReadFile(fh, buf, sizeof(buf)-1, &nr, NULL); CloseHandle(fh);
+        buf[nr] = '\0';
+        for (DWORD i = 0; i < nr; i++) if (buf[i]=='\n'||buf[i]=='\r') buf[i]='\0';
+        if (_stricmp(buf, pid_str) != 0) continue;
+
+        found = TRUE;
+        break;
+    } while (FindNextFileA(h, &ffd));
+
+    FindClose(h);
+    return found;
+}
+
 static void enumerate_usb_devices(void)
 {
     HKEY hKey; DWORD idx; char hw_class[256];
@@ -259,6 +308,7 @@ static void enumerate_usb_devices(void)
             snprintf(full_id,sizeof(full_id),"USB\\%s\\%s",hw_class,instance_id);
             uint16_t vid,pid; uint8_t bus,addr;
             if (!parse_instance_id(full_id,&vid,&pid,&bus,&addr)) continue;
+            if (!is_physically_present(vid,pid)) continue;
             HKEY hDev; uint16_t bcd_device=0;
             if (RegOpenKeyExA(hInst,instance_id,0,KEY_READ,&hDev)==ERROR_SUCCESS) {
                 char hw_id[256]=""; DWORD hw_id_len=sizeof(hw_id),type;
