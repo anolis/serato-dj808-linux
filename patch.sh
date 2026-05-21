@@ -31,7 +31,13 @@
 #    USB-device aggregation loop.  Without these, Serato retries the DJ-808
 #    aggregation ~78 000 times and never connects.
 #
-# 6. Writes a launch wrapper (~/.local/bin/serato-dj-pro) and updates (or
+# 6. Sets Wine's "My Music" shell folder to the user's Serato library root
+#    (--music-dir) so that new crates and library changes are written to the
+#    same _Serato_ database that already holds the existing track collection.
+#    Without this, Serato writes crates to an empty home library and they
+#    vanish on next launch.
+#
+# 7. Writes a launch wrapper (~/.local/bin/serato-dj-pro) and updates (or
 #    creates) the .desktop shortcut so the app launches correctly from any
 #    desktop environment.
 #
@@ -48,7 +54,15 @@
 # Usage
 # -----
 #   chmod +x patch.sh
-#   ./patch.sh [--wineprefix PATH] [--wine-bin PATH] [--dry-run]
+#   ./patch.sh [--wineprefix PATH] [--wine-bin PATH] [--music-dir PATH] [--dry-run]
+#
+#   --music-dir PATH   Linux path to the directory that contains (or should
+#                      contain) your _Serato_ library folder.  This is the root
+#                      of the drive or folder where your music collection lives,
+#                      e.g. /media/youruser/MyDrive or /home/youruser/Music.
+#                      Serato will read/write crates and library data here.
+#                      If omitted, the current Wine "My Music" mapping is left
+#                      unchanged (crates may not persist if it points elsewhere).
 #
 # =============================================================================
 
@@ -61,6 +75,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------------
 WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 WINE_BIN="${WINE_BIN:-wine}"
+MUSIC_DIR=""
 DRY_RUN=0
 
 SERATO_REL="drive_c/Program Files/Serato/Serato DJ Pro"
@@ -78,6 +93,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --wineprefix) WINEPREFIX="$2"; shift 2 ;;
         --wine-bin)   WINE_BIN="$2";   shift 2 ;;
+        --music-dir)  MUSIC_DIR="$2";  shift 2 ;;
         --dry-run)    DRY_RUN=1;       shift   ;;
         -h|--help)
             sed -n '/^# Usage/,/^# ===/p' "$0" | grep -v "^# ===" | sed 's/^# \{0,2\}//'
@@ -148,7 +164,7 @@ run mkdir -p "$HOME/.local/share/applications"
 # ---------------------------------------------------------------------------
 # Step 1 — Build libusb-1.0.dll stub
 # ---------------------------------------------------------------------------
-info "Step 1/6 — Building libusb-1.0.dll stub..."
+info "Step 1/7 — Building libusb-1.0.dll stub..."
 
 cat > /tmp/_libusb_stub.c << 'CSRC'
 /*
@@ -352,7 +368,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 2 — Build LD_PRELOAD hook
 # ---------------------------------------------------------------------------
-info "Step 2/6 — Building LD_PRELOAD hook..."
+info "Step 2/7 — Building LD_PRELOAD hook..."
 
 # Resolve actual Wine DLL directory
 WINE_DLL_DIR=""
@@ -450,7 +466,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 3 — Build + deploy RDAS1174.DLL ASIO stub
 # ---------------------------------------------------------------------------
-info "Step 3/6 — Building RDAS1174.DLL ASIO stub..."
+info "Step 3/7 — Building RDAS1174.DLL ASIO stub..."
 
 RDAS_SRC="$SCRIPT_DIR/rdas_stub.c"
 RDAS_DEF="$SCRIPT_DIR/rdas_stub.def"
@@ -477,7 +493,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 4 — Deploy libusb stub into Serato install dir
 # ---------------------------------------------------------------------------
-info "Step 4/6 — Deploying libusb stub..."
+info "Step 4/7 — Deploying libusb stub..."
 
 LIBUSB_TARGET="$SERATO_DIR/libusb-1.0.dll"
 if [[ $DRY_RUN -eq 0 ]]; then
@@ -494,7 +510,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 4 — Apply version-specific binary patches to Serato DJ Pro.exe
 # ---------------------------------------------------------------------------
-info "Step 5/6 — Applying binary patches for Serato $SERATO_VERSION..."
+info "Step 5/7 — Applying binary patches for Serato $SERATO_VERSION..."
 
 apply_patches() {
     python3 - "$SERATO_EXE" "$SERATO_VERSION" << 'PYEOF'
@@ -569,7 +585,33 @@ fi
 # ---------------------------------------------------------------------------
 # Step 5 — OAuth URI scheme + launch wrapper + desktop entry
 # ---------------------------------------------------------------------------
-info "Step 6/6 — Setting up OAuth handler, launch wrapper, desktop entry..."
+info "Step 6/7 — Setting Wine library root (My Music) for crate persistence..."
+
+if [[ -n "$MUSIC_DIR" ]]; then
+    [[ -d "$MUSIC_DIR" ]] || die "--music-dir does not exist: $MUSIC_DIR"
+    # Convert Linux absolute path → Wine Z: path (Z: is the Linux filesystem root)
+    MUSIC_DIR_WIN="Z:$(echo "$MUSIC_DIR" | sed 's|/|\\|g')"
+    if [[ $DRY_RUN -eq 0 ]]; then
+        WINEPREFIX="$WINEPREFIX" "$WINE_BIN" reg add \
+            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders" \
+            /v "My Music" /t REG_SZ /d "$MUSIC_DIR_WIN" /f &>/dev/null
+        WINEPREFIX="$WINEPREFIX" "$WINE_BIN" reg add \
+            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders" \
+            /v "My Music" /t REG_SZ /d "$MUSIC_DIR_WIN" /f &>/dev/null
+        ok "My Music → $MUSIC_DIR_WIN"
+    else
+        info "[DRY] would set My Music → $MUSIC_DIR_WIN"
+    fi
+else
+    warn "--music-dir not set; Wine My Music mapping left unchanged."
+    warn "If crates don't persist after relaunch, re-run with --music-dir pointing"
+    warn "to the directory that contains your _Serato_ library folder."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 7 — OAuth URI scheme + launch wrapper + desktop entry
+# ---------------------------------------------------------------------------
+info "Step 7/7 — Setting up OAuth handler, launch wrapper, desktop entry..."
 
 # Register seratodjpro:// in Wine registry
 if [[ $DRY_RUN -eq 0 ]]; then
