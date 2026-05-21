@@ -1,0 +1,7 @@
+LIBRARY RDAS1174.dll
+EXPORTS
+    DllEntryPoint
+    DllGetClassObject
+    DllCanUnloadNow
+    DllRegisterServer
+    DllUnregisterServer
