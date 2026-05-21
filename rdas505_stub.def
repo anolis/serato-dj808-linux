@@ -1,0 +1,7 @@
+LIBRARY RDAS0208.dll
+EXPORTS
+    DllEntryPoint
+    DllGetClassObject
+    DllCanUnloadNow
+    DllRegisterServer
+    DllUnregisterServer

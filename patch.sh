@@ -471,10 +471,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3 — Build + deploy RDAS1174.DLL ASIO stub
+# Step 3 — Build + deploy ASIO stubs (DJ-808: RDAS1174.DLL, DJ-505: RDAS0208.DLL)
 # ---------------------------------------------------------------------------
-info "Step 3/8 — Building RDAS1174.DLL ASIO stub..."
+info "Step 3/8 — Building ASIO stubs..."
 
+# DJ-808
 RDAS_SRC="$SCRIPT_DIR/rdas_stub.c"
 RDAS_DEF="$SCRIPT_DIR/rdas_stub.def"
 [[ -f "$RDAS_SRC" ]] || die "rdas_stub.c not found at $RDAS_SRC"
@@ -492,9 +493,56 @@ if [[ $DRY_RUN -eq 0 ]]; then
         || die "RDAS build failed. Log: /tmp/_rdas_build.log"
     cp "$INSTALL_DIR/x86_64-windows/RDAS1174.DLL" "$RDAS_TARGET"
     ok "RDAS1174.DLL deployed to $RDAS_TARGET"
+
+    # Register DJ-808 ASIO in Wine registry
+    wine reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\ASIO\\DJ-808 ASIO" \
+        /v CLSID /t REG_SZ /d "{D6FB76C2-9C4E-4d46-92F3-649672C65096}" /f >/dev/null
+    wine reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\ASIO\\DJ-808 ASIO" \
+        /v Description /t REG_SZ /d "DJ-808 ASIO" /f >/dev/null
+    wine reg add "HKEY_CLASSES_ROOT\\CLSID\\{D6FB76C2-9C4E-4d46-92F3-649672C65096}\\InprocServer32" \
+        /ve /t REG_SZ /d "RDAS1174.DLL" /f >/dev/null
+    wine reg add "HKEY_CLASSES_ROOT\\CLSID\\{D6FB76C2-9C4E-4d46-92F3-649672C65096}\\InprocServer32" \
+        /v ThreadingModel /t REG_SZ /d "Apartment" /f >/dev/null
+    ok "DJ-808 ASIO registered"
 else
     info "[DRY] would build RDAS1174.DLL from rdas_stub.c"
     info "[DRY] would deploy to $RDAS_TARGET"
+fi
+
+# DJ-505
+RDAS505_SRC="$SCRIPT_DIR/rdas505_stub.c"
+RDAS505_DEF="$SCRIPT_DIR/rdas505_stub.def"
+RDAS505_CLSID="{A81EC7B7-7913-49DF-B2B7-25E59A2F8065}"
+RDAS505_TARGET="$WINEPREFIX/drive_c/windows/system32/RDAS0208.DLL"
+
+if [[ -f "$RDAS505_SRC" && -f "$RDAS505_DEF" ]]; then
+    if [[ $DRY_RUN -eq 0 ]]; then
+        x86_64-w64-mingw32-gcc -shared -O2 \
+            -o "$INSTALL_DIR/x86_64-windows/RDAS0208.DLL" \
+            "$RDAS505_SRC" "$RDAS505_DEF" \
+            -Wl,--export-all-symbols -lkernel32 -luser32 -lwinmm \
+            2>/tmp/_rdas505_build.log \
+            && ok "RDAS0208.DLL (DJ-505) built" \
+            || die "RDAS505 build failed. Log: /tmp/_rdas505_build.log"
+        cp "$INSTALL_DIR/x86_64-windows/RDAS0208.DLL" "$RDAS505_TARGET"
+        ok "RDAS0208.DLL deployed to $RDAS505_TARGET"
+
+        # Register DJ-505 ASIO in Wine registry
+        wine reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\ASIO\\DJ-505 ASIO" \
+            /v CLSID /t REG_SZ /d "$RDAS505_CLSID" /f >/dev/null
+        wine reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\ASIO\\DJ-505 ASIO" \
+            /v Description /t REG_SZ /d "DJ-505 ASIO" /f >/dev/null
+        wine reg add "HKEY_CLASSES_ROOT\\CLSID\\$RDAS505_CLSID\\InprocServer32" \
+            /ve /t REG_SZ /d "RDAS0208.DLL" /f >/dev/null
+        wine reg add "HKEY_CLASSES_ROOT\\CLSID\\$RDAS505_CLSID\\InprocServer32" \
+            /v ThreadingModel /t REG_SZ /d "Apartment" /f >/dev/null
+        ok "DJ-505 ASIO registered"
+    else
+        info "[DRY] would build RDAS0208.DLL from rdas505_stub.c"
+        info "[DRY] would deploy to $RDAS505_TARGET"
+    fi
+else
+    info "rdas505_stub.c not found — skipping DJ-505 ASIO stub"
 fi
 
 # ---------------------------------------------------------------------------
