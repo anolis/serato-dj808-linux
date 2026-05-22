@@ -131,19 +131,6 @@ chmod +x patch.sh
 ./patch.sh
 ```
 
-By default it targets `~/.wine` and uses `wine` from `$PATH`.
-Override with flags:
-
-```bash
-./patch.sh --wineprefix ~/.wine-serato --wine-bin /opt/wine-stable/bin/wine
-```
-
-Preview what it will do without changing anything:
-
-```bash
-./patch.sh --dry-run
-```
-
 3. Launch Serato:
 
 ```bash
@@ -151,6 +138,57 @@ Preview what it will do without changing anything:
 ```
 
 Or use the **Serato DJ Pro** shortcut in your application menu.
+
+---
+
+### Patcher options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--wineprefix PATH` | `~/.wine` | Path to the Wine prefix where Serato is installed |
+| `--wine-bin PATH` | `wine` (from `$PATH`) | Path to the Wine binary, e.g. `/opt/wine-stable/bin/wine` |
+| `--music-dir PATH` | *(current Wine "My Music" mapping)* | Linux path to your music library root — the directory that contains (or should contain) your `_Serato_` folder. Sets Wine's "My Music" shell folder so crates and library data are written to the right place. If you have an existing Serato library on an external drive, point this at the drive root, e.g. `/media/youruser/MyDrive`. |
+| `--dry-run` | off | Print every action without making any changes |
+| `--help` / `-h` | | Show usage and exit |
+
+**Common examples:**
+
+```bash
+# Non-default Wine prefix and binary (e.g. WineHQ stable alongside system Wine)
+./patch.sh --wineprefix ~/.wine-serato --wine-bin /opt/wine-stable/bin/wine
+
+# Point Serato at an external drive music library
+./patch.sh --music-dir /media/youruser/MyDrive
+
+# Preview everything without touching anything
+./patch.sh --dry-run
+```
+
+> **Re-running the patcher is safe.** All steps are idempotent — DLLs are
+> rebuilt and redeployed, registry keys are overwritten, and the launch wrapper
+> is regenerated. Run it again any time you update Wine or reinstall Serato.
+
+---
+
+### Launch wrapper
+
+The patcher writes `~/.local/bin/serato-dj-pro`, a small script that sets the
+required environment and launches Serato:
+
+```bash
+export WINEPREFIX=~/.wine
+export LD_PRELOAD=~/.local/share/serato-dj808-linux/wine_open_hook.so
+exec wine "C:\Program Files\Serato\Serato DJ Pro\Serato DJ Pro.exe"
+```
+
+The `LD_PRELOAD` hook is **required** — without it the Wine loader picks up the
+system `winmm.dll` instead of the patched copy, and the MIDI device reports the
+wrong VID/PID, causing Serato to create split IN/OUT MIDI connections instead of
+a single duplex one. That breaks the firmware handshake and hardware mode never
+activates.
+
+If you need to launch Serato from a script or another launcher, make sure it
+either calls `~/.local/bin/serato-dj-pro` or sets `LD_PRELOAD` itself.
 
 ---
 
