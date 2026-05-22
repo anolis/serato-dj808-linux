@@ -562,33 +562,48 @@ fi
 # DJ-505
 RDAS505_SRC="$SCRIPT_DIR/rdas505_stub.c"
 RDAS505_DEF="$SCRIPT_DIR/rdas505_stub.def"
-RDAS505_CLSID="{A81EC7B7-7913-49DF-B2B7-25E59A2F8065}"
-RDAS505_TARGET="$WINEPREFIX/drive_c/windows/system32/RDAS0208.DLL"
+RDAS505_CLSID="{8CEA6E64-A172-4bd4-8A9A-0204E73C4005}"
+RDAS505_TARGET="$WINEPREFIX/drive_c/windows/system32/RDAS1197.DLL"
 
 if [[ -f "$RDAS505_SRC" && -f "$RDAS505_DEF" ]]; then
     if [[ $DRY_RUN -eq 0 ]]; then
         x86_64-w64-mingw32-gcc -shared -O2 \
-            -o "$INSTALL_DIR/x86_64-windows/RDAS0208.DLL" \
+            -o "$INSTALL_DIR/x86_64-windows/RDAS1197.DLL" \
             "$RDAS505_SRC" "$RDAS505_DEF" \
             -Wl,--export-all-symbols -lkernel32 -luser32 -lwinmm \
             2>/tmp/_rdas505_build.log \
-            && ok "RDAS0208.DLL (DJ-505) built" \
+            && ok "RDAS1197.DLL built" \
             || die "RDAS505 build failed. Log: /tmp/_rdas505_build.log"
-        cp "$INSTALL_DIR/x86_64-windows/RDAS0208.DLL" "$RDAS505_TARGET"
-        ok "RDAS0208.DLL deployed to $RDAS505_TARGET"
+        cp "$INSTALL_DIR/x86_64-windows/RDAS1197.DLL" "$RDAS505_TARGET"
+        ok "RDAS1197.DLL deployed to $RDAS505_TARGET"
 
-        # Register DJ-505 ASIO in Wine registry
+        # Register DJ-505 ASIO COM server in Wine registry
         wine reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\ASIO\\DJ-505 ASIO" \
             /v CLSID /t REG_SZ /d "$RDAS505_CLSID" /f >/dev/null
         wine reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\ASIO\\DJ-505 ASIO" \
             /v Description /t REG_SZ /d "DJ-505 ASIO" /f >/dev/null
         wine reg add "HKEY_CLASSES_ROOT\\CLSID\\$RDAS505_CLSID\\InprocServer32" \
-            /ve /t REG_SZ /d "RDAS0208.DLL" /f >/dev/null
+            /ve /t REG_SZ /d "RDAS1197.DLL" /f >/dev/null
         wine reg add "HKEY_CLASSES_ROOT\\CLSID\\$RDAS505_CLSID\\InprocServer32" \
             /v ThreadingModel /t REG_SZ /d "Apartment" /f >/dev/null
         ok "DJ-505 ASIO registered"
+
+        # Register DJ-505 USB device in Wine registry so the libusb stub detects it.
+        # Instance ID "512&256&1&0" satisfies parse_instance_id's 4-field sscanf
+        # (USB\VID_0582&PID_0208\512&256&1&0 → bus=0x12, addr=0x56).
+        # HardwareId with REV_0100 lets the stub extract bcd_device=0x100.
+        wine reg delete \
+            "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Enum\\USB\\VID_0582&PID_0208" \
+            /f 2>/dev/null || true
+        DJ505_INST="HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Enum\\USB\\VID_0582&PID_0208\\512&256&1&0"
+        wine reg add "$DJ505_INST" /v DeviceDesc  /t REG_SZ    /d "Roland DJ-505" /f >/dev/null
+        wine reg add "$DJ505_INST" /v HardwareId  /t REG_SZ    /d "USB\\VID_0582&PID_0208&REV_0100" /f >/dev/null
+        wine reg add "$DJ505_INST" /v Service     /t REG_SZ    /d "RDID1197" /f >/dev/null
+        wine reg add "$DJ505_INST" /v ClassGUID   /t REG_SZ    /d "{00000000-0000-0000-0000-000000000000}" /f >/dev/null
+        wine reg add "$DJ505_INST" /v ConfigFlags /t REG_DWORD /d "0" /f >/dev/null
+        ok "DJ-505 USB device registered (instance 512&256&1&0)"
     else
-        info "[DRY] would build RDAS0208.DLL from rdas505_stub.c"
+        info "[DRY] would build RDAS1197.DLL from rdas505_stub.c"
         info "[DRY] would deploy to $RDAS505_TARGET"
     fi
 else

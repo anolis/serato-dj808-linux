@@ -1,4 +1,4 @@
-LIBRARY RDAS0208.dll
+LIBRARY RDAS1197.dll
 EXPORTS
     DllEntryPoint
     DllGetClassObject

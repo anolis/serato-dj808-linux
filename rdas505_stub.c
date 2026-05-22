@@ -1,16 +1,18 @@
 /*
- * rdas505_stub.c — Fake Roland DJ-505 ASIO driver (RDAS0208.DLL replacement)
+ * rdas505_stub.c — Fake Roland DJ-505 ASIO driver (RDAS1197.DLL replacement)
  *
  * The DJ-505's real Windows ASIO driver uses kernel-mode USB audio, which
  * doesn't exist under Wine.  This stub implements the full IASIO COM vtable,
- * returns plausible values (48000 Hz, 1024-sample buffers, 2-in/4-out), and
+ * returns plausible values (48000 Hz, 1024-sample buffers, 8-in/6-out), and
  * routes audio to the default waveOut device.
  *
- * DJ-505 hardware: 4-channel USB audio at 48000 Hz (FLOAT_LE from ALSA),
- * 2 stereo output pairs (master + booth).
+ * CLSID: {8CEA6E64-A172-4bd4-8A9A-0204E73C4005}  (matches real RDAS1197.DLL)
+ * Channel layout matches real driver strings from RDAS1197.DLL:
+ *   8 inputs:  DECK1 DVS IN/R, DECK2 DVS IN/R, TR-S IN/R, MIC RECORD/R
+ *   6 outputs: MASTER OUTPUT/R, CUE OUTPUT/R, MASTER RECORD/R
  *
  * Compile (64-bit Windows DLL):
- *   x86_64-w64-mingw32-gcc -shared -O2 -o RDAS0208.DLL rdas505_stub.c \
+ *   x86_64-w64-mingw32-gcc -shared -O2 -o RDAS1197.DLL rdas505_stub.c \
  *       rdas505_stub.def -Wl,--export-all-symbols -lkernel32 -luser32 -lwinmm
  */
 
@@ -129,9 +131,9 @@ static void WINAPI asio_getName(IASIO *t, char *n) { strcpy(n, "DJ-505 ASIO"); }
 static long WINAPI asio_getVer(IASIO *t)            { return 1; }
 static void WINAPI asio_getErr(IASIO *t, char *s)   { strcpy(s, "No error"); }
 
-/* 2 inputs (stereo mic/line), 4 outputs (master + booth stereo pairs) */
+/* 8 inputs, 6 outputs — matches real RDAS1197.DLL channel count */
 static ASIOError WINAPI asio_getCh(IASIO *t, long *ni, long *no) {
-    *ni = 2; *no = 4; return ASE_OK;
+    *ni = 8; *no = 6; return ASE_OK;
 }
 static ASIOError WINAPI asio_getLat(IASIO *t, long *il, long *ol) {
     *il = 1024; *ol = 1024; return ASE_OK;
@@ -161,19 +163,38 @@ static ASIOError WINAPI asio_getSPos(IASIO *t, ASIOSamples *s, ASIOTimeStamp *ts
     if (ts) { ts->lo = 0; ts->hi = 0; }
     return ASE_OK;
 }
+static const char *const g_in_names[] = {
+    "DECK1 DVS IN", "DECK1 DVS IN(R)",
+    "DECK2 DVS IN", "DECK2 DVS IN(R)",
+    "TR-S IN",      "TR-S IN(R)",
+    "MIC RECORD",   "MIC RECORD(R)",
+};
+static const char *const g_out_names[] = {
+    "MASTER OUTPUT", "MASTER OUTPUT(R)",
+    "CUE OUTPUT",    "CUE OUTPUT(R)",
+    "MASTER RECORD", "MASTER RECORD(R)",
+};
+
 static ASIOError WINAPI asio_getChInfo(IASIO *t, ASIOChannelInfo *i) {
     if (!i) return ASE_InvalidParameter;
     i->isActive = ASIOFalse;
     i->channelGroup = 0;
     i->type = 18; /* ASIOSTInt32LSB */
-    if (i->isInput)
-        snprintf(i->name, 32, "Input %ld",  i->channel + 1);
-    else
-        snprintf(i->name, 32, "Output %ld", i->channel + 1);
+    if (i->isInput) {
+        if (i->channel >= 0 && i->channel < 8)
+            strncpy(i->name, g_in_names[i->channel], 32);
+        else
+            snprintf(i->name, 32, "Input %ld", i->channel + 1);
+    } else {
+        if (i->channel >= 0 && i->channel < 6)
+            strncpy(i->name, g_out_names[i->channel], 32);
+        else
+            snprintf(i->name, 32, "Output %ld", i->channel + 1);
+    }
     return ASE_OK;
 }
 
-#define MAX_CH  8
+#define MAX_CH  16
 #define MAX_BSZ 4096
 static int32_t g_bufs[MAX_CH][2][MAX_BSZ];
 
