@@ -21,7 +21,7 @@
 #    stub returns plausible ASIO values, drives Serato's audio engine via the
 #    bufferSwitch callback, routes audio to the default waveOut device, and
 #    implements the DJ-808 channel FX (Filter/Noise/Jet/Phaser) in software.
-#    Source: rdas_stub.c / rdas_stub.def (sibling files in this repo).
+#    Source: rdas808_stub.c / rdas808_stub.def (sibling files in this repo).
 #
 # 4. Registers the seratodjpro:// URI scheme on Linux so that the OAuth login
 #    flow (Firefox opens id.serato.com → redirects to seratodjpro://…) routes
@@ -526,10 +526,10 @@ fi
 info "Step 3/8 — Building ASIO stubs..."
 
 # DJ-808
-RDAS_SRC="$SCRIPT_DIR/rdas_stub.c"
-RDAS_DEF="$SCRIPT_DIR/rdas_stub.def"
-[[ -f "$RDAS_SRC" ]] || die "rdas_stub.c not found at $RDAS_SRC"
-[[ -f "$RDAS_DEF" ]] || die "rdas_stub.def not found at $RDAS_DEF"
+RDAS_SRC="$SCRIPT_DIR/rdas808_stub.c"
+RDAS_DEF="$SCRIPT_DIR/rdas808_stub.def"
+[[ -f "$RDAS_SRC" ]] || die "rdas808_stub.c not found at $RDAS_SRC"
+[[ -f "$RDAS_DEF" ]] || die "rdas808_stub.def not found at $RDAS_DEF"
 
 RDAS_TARGET="$WINEPREFIX/drive_c/windows/system32/RDAS1174.DLL"
 
@@ -555,7 +555,7 @@ if [[ $DRY_RUN -eq 0 ]]; then
         /v ThreadingModel /t REG_SZ /d "Apartment" /f >/dev/null
     ok "DJ-808 ASIO registered"
 else
-    info "[DRY] would build RDAS1174.DLL from rdas_stub.c"
+    info "[DRY] would build RDAS1174.DLL from rdas808_stub.c"
     info "[DRY] would deploy to $RDAS_TARGET"
 fi
 
