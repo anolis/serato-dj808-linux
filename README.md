@@ -203,6 +203,46 @@ The five patches:
 
 ---
 
+## DJ-808 aggregation flow (for contributors)
+
+The full chain that must succeed for Serato to enter hardware mode:
+
+```
+libusb USB scan
+  → reads HKLM\SYSTEM\...\Enum\USB\VID_0582&PID_01C9\512&256&1&6
+  → checks /sys/bus/usb/devices/ to confirm device is physically present
+  → fires "New USB Connection" in Serato
+
+Serato aggregation loop  [binary patches required — see below]
+  → "New USB device plugged-in: Roland DJ-808"
+  → queries MIDI devices for one with matching VID/PID
+    → winealsa DRV_QUERYDEVICEINTERFACE returns interface path containing PID_01C9
+  → "Firmware supported, device: DJ-808"
+  → CNativeMixer : kConnectedMode : hardware=DJ-808
+  → Deck Manager : Dual Control enabled : 1
+
+ASIO audio start
+  → CoCreateInstance({D6FB76C2-9C4E-4d46-92F3-649672C65096}) → RDAS1174.DLL
+  → createBuffers(nch=12)  [4 inputs + 8 outputs]
+  → ASIOStart → callback thread begins calling bufferSwitch
+  → "Audio Connection to Device: DJ-808 succeeded"
+```
+
+Key implementation notes:
+- The DJ-808 requires the five `.exe` binary patches (see below). Without them,
+  the vtable gate-checks in the aggregation function all return 0 on first
+  connection and the loop retries indefinitely (~78,000 times per session).
+- `RDAS1174.DLL` reports 4 inputs and 8 outputs (4 stereo pairs, one per deck).
+  `MAX_CH=16` in the stub covers the full `nch=12` createBuffers request.
+- The DJ-808 MIDI port appears as `direction=duplex` in Serato, same as the
+  DJ-505. The USB instance ID suffix is `&6` (vs `&0` for the DJ-505) —
+  this comes from the `DRV_QUERYDEVICEINTERFACE` path and must match what is
+  registered in the Wine USB registry.
+- Audio preferred buffer size is 1024 samples (23 ms). 512 samples causes
+  audible crackling under Wine's waveOut timing.
+
+---
+
 ## DJ-505 aggregation flow (for contributors)
 
 The full chain that must succeed for Serato to enter hardware mode:
