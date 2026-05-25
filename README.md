@@ -1,10 +1,11 @@
 # serato-dj808-linux
 
 Makes **Roland DJ-808** and **Roland DJ-505** (and likely other Roland/BOSS USB MIDI controllers)
-work with **Serato DJ Pro** running under **Wine** on Linux.
+work with **Serato DJ Pro** (2.5.112) running under **Wine** on Linux.
 
 No Windows. No dual-boot. No VM.
 
+This has not been tested with 3.x or 4.x 
 ---
 
 ## Supported hardware
